@@ -41,17 +41,12 @@ module Audited
 	# table doesn't exist, we are in a rake task for migration or alike
 	return if !self.table_exists?	
 
-        class_attribute :non_audited_columns,   :instance_writer => false
+        class_attribute :audit_options, :instance_writer => false
         class_attribute :auditing_enabled,      :instance_writer => false
         class_attribute :audit_associated_with, :instance_writer => false
 
-        if options[:only]
-          except = self.column_names - options[:only].flatten.map(&:to_s)
-        else
-          except = default_ignored_attributes + Audited.ignored_attributes
-          except |= Array(options[:except]).collect(&:to_s) if options[:except]
-        end
-        self.non_audited_columns = except
+        self.audit_options = options
+        
         self.audit_associated_with = options[:associated_with]
 
         if options[:comment_required]
@@ -86,9 +81,27 @@ module Audited
       def has_associated_audits
         has_many :associated_audits, :as => :associated, :class_name => Audited.audit_class.name
       end
+      
+      def non_audited_columns
+        @non_audited_columns ||= begin
+          if audit_options[:only]
+            except = column_names - Array(audit_options[:only]).map(&:to_s)
+          else
+            except = [primary_key, inheritance_column] + ActsAsAudited.ignored_attributes
+            except |= Array(audit_options[:except]).collect(&:to_s) if audit_options[:except]
+          end
+
+          except
+        end
+      end
     end
 
     module AuditedInstanceMethods
+    	
+      def non_audited_columns
+        self.class.non_audited_columns
+      end
+      
       # Temporarily turns off auditing while saving.
       def save_without_auditing
         without_auditing { save }
